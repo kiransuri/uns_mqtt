@@ -1,49 +1,44 @@
-# Factory Sensor MQTT Simulator and Dashboard
+# Battery Manufacturing Plant Monitoring System
 
-This project simulates factory sensor data and provides a real-time web dashboard for monitoring. It uses MQTT for data transmission and Flask for the web interface.
+A real-time monitoring system for battery manufacturing plants using MQTT for data transmission and a web-based dashboard for visualization.
 
 ## Features
 
-- Simulates multiple factory sensors (temperature, pressure, humidity, vibration, power)
-- Uses standardized MQTT topic structure
-- Real-time data streaming from CSV file
-- Web dashboard with live updates
-- Comprehensive logging
+- Real-time sensor data simulation for battery manufacturing processes
+- MQTT-based data transmission
+- Modern web dashboard with real-time updates
+- Comprehensive monitoring of multiple manufacturing processes:
+  - Mixing Process
+  - Coating Process
+  - Drying Process
+  - Calendering Process
+  - Quality Control
+  - Energy Monitoring
 
 ## Prerequisites
 
-- Python 3.8+
-- MQTT Broker (e.g., Mosquitto)
-- Required Python packages (see requirements.txt)
+- Python 3.8 or higher
+- MQTT Broker (Mosquitto)
+- Git
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/kiransuri/uns_mqtt.git
 cd uns_mqtt
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
+2. Install the required dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-4. Install and start MQTT broker (Mosquitto):
+3. Install and start Mosquitto MQTT broker:
 ```bash
-# On macOS with Homebrew:
+# For macOS (using Homebrew)
 brew install mosquitto
 brew services start mosquitto
-
-# On Ubuntu/Debian:
-sudo apt-get install mosquitto
-sudo systemctl start mosquitto
 ```
 
 ## Usage
@@ -52,36 +47,74 @@ sudo systemctl start mosquitto
 ```bash
 python generate_sensor_data.py
 ```
+This will create a `battery_plant_data.csv` file with simulated sensor data.
 
 2. Start the sensor simulator:
 ```bash
 python sensor_simulator.py
 ```
+This will start publishing sensor data to the MQTT broker.
 
 3. Start the web dashboard:
 ```bash
 python web_dashboard.py
 ```
-
-4. Access the dashboard at `http://localhost:5000`
+The dashboard will be available at `http://localhost:5001`
 
 ## Project Structure
 
-- `sensor_simulator.py`: MQTT publisher for sensor data
-- `web_dashboard.py`: Flask web application for data visualization
-- `generate_sensor_data.py`: Script to generate sample sensor data
-- `templates/`: HTML templates for the web dashboard
-- `requirements.txt`: Python package dependencies
+```
+uns_mqtt/
+├── generate_sensor_data.py    # Generates realistic sensor data
+├── sensor_simulator.py        # MQTT publisher for sensor data
+├── web_dashboard.py          # Flask web server and MQTT subscriber
+├── requirements.txt          # Python dependencies
+├── battery_plant_data.csv    # Generated sensor data
+└── templates/
+    └── index.html           # Web dashboard template
+```
 
 ## MQTT Topic Structure
 
-The project uses a standardized MQTT topic structure:
+The system uses a standardized MQTT topic structure:
 ```
-factory/{factory_id}/zone/{zone_id}/sensor/{sensor_type}
+battery_plant/{plant_id}/process/{process_id}/sensor/{sensor_type}
 ```
 
-Example: `factory/1/zone/1/sensor/temperature`
+Example topics:
+- `battery_plant/1/process/mixing/sensor/temperature`
+- `battery_plant/1/process/coating/sensor/thickness`
+- `battery_plant/1/process/drying/sensor/humidity`
+
+## Sensor Data
+
+The system simulates various sensor readings including:
+- Temperature (°C)
+- Humidity (%)
+- Pressure (hPa)
+- Viscosity (cP)
+- Density (g/cm³)
+- Thickness (μm)
+- Speed (m/min)
+- Web Tension (N)
+- Air Flow (m³/h)
+- Power (kW)
+- And more...
+
+## Contributing
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
+4. Push to the branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
 ## License
 
-MIT License 
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- MQTT Protocol
+- Flask Web Framework
+- Bootstrap for the dashboard UI 
