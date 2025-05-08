@@ -1,185 +1,219 @@
 import paho.mqtt.client as mqtt
-import time
-import random
 import json
+import time
+import pandas as pd
 from datetime import datetime
-import csv
-import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # MQTT Configuration
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
+MQTT_CLIENT_ID = "battery_plant_simulator"
 
-# Sensor topics
-SENSOR_TOPICS = {
-    "temperature": {
-        "zone1": "factory/zone1/temperature",
-        "zone2": "factory/zone2/temperature"
+# Standardized MQTT Topic Structure
+# Format: battery_plant/{plant_id}/process/{process_id}/sensor/{sensor_type}
+TOPIC_BASE = "battery_plant/1"
+TOPICS = {
+    'mixing': {
+        'temperature': f"{TOPIC_BASE}/process/mixing/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/mixing/sensor/humidity",
+        'pressure': f"{TOPIC_BASE}/process/mixing/sensor/pressure",
+        'viscosity': f"{TOPIC_BASE}/process/mixing/sensor/viscosity",
+        'density': f"{TOPIC_BASE}/process/mixing/sensor/density"
     },
-    "pressure": {
-        "zone1": "factory/zone1/pressure",
-        "zone2": "factory/zone2/pressure"
+    'coating': {
+        'thickness': f"{TOPIC_BASE}/process/coating/sensor/thickness",
+        'speed': f"{TOPIC_BASE}/process/coating/sensor/speed",
+        'temperature': f"{TOPIC_BASE}/process/coating/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/coating/sensor/humidity",
+        'web_tension': f"{TOPIC_BASE}/process/coating/sensor/web_tension"
     },
-    "humidity": {
-        "zone1": "factory/zone1/humidity",
-        "zone2": "factory/zone2/humidity"
+    'drying': {
+        'temperature': f"{TOPIC_BASE}/process/drying/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/drying/sensor/humidity",
+        'air_flow': f"{TOPIC_BASE}/process/drying/sensor/air_flow",
+        'drying_time': f"{TOPIC_BASE}/process/drying/sensor/drying_time"
     },
-    "vibration": {
-        "machine1": "factory/machine1/vibration",
-        "machine2": "factory/machine2/vibration"
+    'calendering': {
+        'pressure': f"{TOPIC_BASE}/process/calendering/sensor/pressure",
+        'temperature': f"{TOPIC_BASE}/process/calendering/sensor/temperature",
+        'speed': f"{TOPIC_BASE}/process/calendering/sensor/speed",
+        'thickness': f"{TOPIC_BASE}/process/calendering/sensor/thickness"
     },
-    "power": {
-        "line1": "factory/power/line1",
-        "line2": "factory/power/line2"
+    'slitting': {
+        'speed': f"{TOPIC_BASE}/process/slitting/sensor/speed",
+        'tension': f"{TOPIC_BASE}/process/slitting/sensor/tension",
+        'width': f"{TOPIC_BASE}/process/slitting/sensor/width"
+    },
+    'environmental': {
+        'temperature': f"{TOPIC_BASE}/process/environmental/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/environmental/sensor/humidity",
+        'pressure': f"{TOPIC_BASE}/process/environmental/sensor/pressure"
+    },
+    'quality': {
+        'resistance': f"{TOPIC_BASE}/process/quality/sensor/resistance",
+        'porosity': f"{TOPIC_BASE}/process/quality/sensor/porosity",
+        'density': f"{TOPIC_BASE}/process/quality/sensor/density"
+    },
+    'energy': {
+        'power': f"{TOPIC_BASE}/process/energy/sensor/power",
+        'air_pressure': f"{TOPIC_BASE}/process/energy/sensor/air_pressure",
+        'water_temperature': f"{TOPIC_BASE}/process/energy/sensor/water_temperature"
     }
 }
 
-def on_connect(client, userdata, flags, rc):
-    print(f"Connected with result code {rc}")
+class BatteryPlantSimulator:
+    def __init__(self):
+        self.client = mqtt.Client(MQTT_CLIENT_ID)
+        self.client.on_connect = self.on_connect
+        self.client.on_publish = self.on_publish
+        self.data = None
+        self.current_index = 0
+        
+    def on_connect(self, client, userdata, flags, rc):
+        if rc == 0:
+            logger.info("Connected to MQTT broker")
+        else:
+            logger.error(f"Failed to connect to MQTT broker with code: {rc}")
 
-def read_csv_data(file_path):
-    """Read sensor data from CSV file."""
-    data = []
-    with open(file_path, 'r') as file:
-        reader = csv.DictReader(file)
-        for row in reader:
-            data.append(row)
-    return data
+    def on_publish(self, client, userdata, mid):
+        logger.debug(f"Message {mid} published successfully")
 
-def add_random_variation(value, variation_percent=1):
-    """Add random variation to a value."""
-    variation = float(value) * (variation_percent / 100)
-    return float(value) + random.uniform(-variation, variation)
+    def load_data(self, csv_file='battery_plant_data.csv'):
+        try:
+            self.data = pd.read_csv(csv_file)
+            logger.info(f"Loaded {len(self.data)} records from {csv_file}")
+        except Exception as e:
+            logger.error(f"Error loading CSV file: {e}")
+            raise
 
-def simulate_sensor_data():
-    # Create MQTT client
-    client = mqtt.Client()
-    client.on_connect = on_connect
-    
-    # Connect to MQTT broker
-    client.connect(MQTT_BROKER, MQTT_PORT, 60)
-    client.loop_start()
-    
-    # Read initial data from CSV
-    csv_file = os.path.join(os.path.dirname(__file__), 'sensor_data.csv')
-    sensor_data = read_csv_data(csv_file)
-    data_index = 0
-    
-    try:
-        while True:
-            # Get current row of data
-            current_data = sensor_data[data_index]
-            
-            # Add random variation to each value
-            temp_zone1 = round(add_random_variation(current_data['temperature_zone1']), 2)
-            temp_zone2 = round(add_random_variation(current_data['temperature_zone2']), 2)
-            pressure_zone1 = round(add_random_variation(current_data['pressure_zone1']), 2)
-            pressure_zone2 = round(add_random_variation(current_data['pressure_zone2']), 2)
-            humidity_zone1 = round(add_random_variation(current_data['humidity_zone1']), 2)
-            humidity_zone2 = round(add_random_variation(current_data['humidity_zone2']), 2)
-            vibration_machine1 = round(add_random_variation(current_data['vibration_machine1']), 2)
-            vibration_machine2 = round(add_random_variation(current_data['vibration_machine2']), 2)
-            power_line1 = round(add_random_variation(current_data['power_line1']), 2)
-            power_line2 = round(add_random_variation(current_data['power_line2']), 2)
-            
-            # Create and publish data for each sensor
-            timestamp = datetime.now().isoformat()
-            
-            # Temperature data
-            client.publish(SENSOR_TOPICS["temperature"]["zone1"], json.dumps({
-                "value": temp_zone1,
-                "unit": "°C",
+    def publish_sensor_data(self):
+        if self.data is None:
+            logger.error("No data loaded. Please load data first.")
+            return
+
+        if self.current_index >= len(self.data):
+            logger.info("Reached end of data, restarting from beginning")
+            self.current_index = 0
+
+        row = self.data.iloc[self.current_index]
+        
+        # Publish mixing room data
+        self.publish_sensor_value(TOPICS['mixing']['temperature'], row['mixing_temperature'])
+        self.publish_sensor_value(TOPICS['mixing']['humidity'], row['mixing_humidity'])
+        self.publish_sensor_value(TOPICS['mixing']['pressure'], row['mixing_pressure'])
+        self.publish_sensor_value(TOPICS['mixing']['viscosity'], row['slurry_viscosity'])
+        self.publish_sensor_value(TOPICS['mixing']['density'], row['slurry_density'])
+        
+        # Publish coating line data
+        self.publish_sensor_value(TOPICS['coating']['thickness'], row['coating_thickness'])
+        self.publish_sensor_value(TOPICS['coating']['speed'], row['coating_speed'])
+        self.publish_sensor_value(TOPICS['coating']['temperature'], row['coating_temperature'])
+        self.publish_sensor_value(TOPICS['coating']['humidity'], row['coating_humidity'])
+        self.publish_sensor_value(TOPICS['coating']['web_tension'], row['web_tension'])
+        
+        # Publish drying oven data
+        self.publish_sensor_value(TOPICS['drying']['temperature'], row['oven_temperature'])
+        self.publish_sensor_value(TOPICS['drying']['humidity'], row['oven_humidity'])
+        self.publish_sensor_value(TOPICS['drying']['air_flow'], row['air_flow_rate'])
+        self.publish_sensor_value(TOPICS['drying']['drying_time'], row['drying_time'])
+        
+        # Publish calendering data
+        self.publish_sensor_value(TOPICS['calendering']['pressure'], row['calender_pressure'])
+        self.publish_sensor_value(TOPICS['calendering']['temperature'], row['calender_temperature'])
+        self.publish_sensor_value(TOPICS['calendering']['speed'], row['calender_speed'])
+        self.publish_sensor_value(TOPICS['calendering']['thickness'], row['electrode_thickness'])
+        
+        # Publish slitting data
+        self.publish_sensor_value(TOPICS['slitting']['speed'], row['slitting_speed'])
+        self.publish_sensor_value(TOPICS['slitting']['tension'], row['slitting_tension'])
+        self.publish_sensor_value(TOPICS['slitting']['width'], row['electrode_width'])
+        
+        # Publish environmental data
+        self.publish_sensor_value(TOPICS['environmental']['temperature'], row['room_temperature'])
+        self.publish_sensor_value(TOPICS['environmental']['humidity'], row['room_humidity'])
+        self.publish_sensor_value(TOPICS['environmental']['pressure'], row['room_pressure'])
+        
+        # Publish quality control data
+        self.publish_sensor_value(TOPICS['quality']['resistance'], row['electrode_resistance'])
+        self.publish_sensor_value(TOPICS['quality']['porosity'], row['electrode_porosity'])
+        self.publish_sensor_value(TOPICS['quality']['density'], row['electrode_density'])
+        
+        # Publish energy monitoring data
+        self.publish_sensor_value(TOPICS['energy']['power'], row['power_consumption'])
+        self.publish_sensor_value(TOPICS['energy']['air_pressure'], row['compressed_air_pressure'])
+        self.publish_sensor_value(TOPICS['energy']['water_temperature'], row['cooling_water_temperature'])
+
+        self.current_index += 1
+
+    def publish_sensor_value(self, topic, value):
+        timestamp = datetime.now().isoformat()
+        payload = {
                 "timestamp": timestamp,
-                "sensor_type": "temperature",
-                "location": "zone1"
-            }))
+            "value": value,
+            "unit": self.get_unit_for_topic(topic)
+        }
+        self.client.publish(topic, json.dumps(payload))
+        logger.debug(f"Published to {topic}: {payload}")
+
+    def get_unit_for_topic(self, topic):
+        if 'temperature' in topic:
+            return '°C'
+        elif 'humidity' in topic:
+            return '%'
+        elif 'pressure' in topic:
+            return 'hPa'
+        elif 'viscosity' in topic:
+            return 'cP'
+        elif 'density' in topic:
+            return 'g/cm³'
+        elif 'thickness' in topic:
+            return 'μm'
+        elif 'speed' in topic:
+            return 'm/min'
+        elif 'tension' in topic:
+            return 'N'
+        elif 'air_flow' in topic:
+            return 'm³/h'
+        elif 'drying_time' in topic:
+            return 'min'
+        elif 'resistance' in topic:
+            return 'Ω'
+        elif 'porosity' in topic:
+            return '%'
+        elif 'width' in topic:
+            return 'mm'
+        elif 'power' in topic:
+            return 'kW'
+        elif 'air_pressure' in topic:
+            return 'bar'
+        return ''
+
+    def run(self, interval=1):
+        try:
+            self.client.connect(MQTT_BROKER, MQTT_PORT)
+            self.client.loop_start()
             
-            client.publish(SENSOR_TOPICS["temperature"]["zone2"], json.dumps({
-                "value": temp_zone2,
-                "unit": "°C",
-                "timestamp": timestamp,
-                "sensor_type": "temperature",
-                "location": "zone2"
-            }))
-            
-            # Pressure data
-            client.publish(SENSOR_TOPICS["pressure"]["zone1"], json.dumps({
-                "value": pressure_zone1,
-                "unit": "hPa",
-                "timestamp": timestamp,
-                "sensor_type": "pressure",
-                "location": "zone1"
-            }))
-            
-            client.publish(SENSOR_TOPICS["pressure"]["zone2"], json.dumps({
-                "value": pressure_zone2,
-                "unit": "hPa",
-                "timestamp": timestamp,
-                "sensor_type": "pressure",
-                "location": "zone2"
-            }))
-            
-            # Humidity data
-            client.publish(SENSOR_TOPICS["humidity"]["zone1"], json.dumps({
-                "value": humidity_zone1,
-                "unit": "%",
-                "timestamp": timestamp,
-                "sensor_type": "humidity",
-                "location": "zone1"
-            }))
-            
-            client.publish(SENSOR_TOPICS["humidity"]["zone2"], json.dumps({
-                "value": humidity_zone2,
-                "unit": "%",
-                "timestamp": timestamp,
-                "sensor_type": "humidity",
-                "location": "zone2"
-            }))
-            
-            # Vibration data
-            client.publish(SENSOR_TOPICS["vibration"]["machine1"], json.dumps({
-                "value": vibration_machine1,
-                "unit": "mm/s",
-                "timestamp": timestamp,
-                "sensor_type": "vibration",
-                "location": "machine1"
-            }))
-            
-            client.publish(SENSOR_TOPICS["vibration"]["machine2"], json.dumps({
-                "value": vibration_machine2,
-                "unit": "mm/s",
-                "timestamp": timestamp,
-                "sensor_type": "vibration",
-                "location": "machine2"
-            }))
-            
-            # Power data
-            client.publish(SENSOR_TOPICS["power"]["line1"], json.dumps({
-                "value": power_line1,
-                "unit": "kW",
-                "timestamp": timestamp,
-                "sensor_type": "power",
-                "location": "line1"
-            }))
-            
-            client.publish(SENSOR_TOPICS["power"]["line2"], json.dumps({
-                "value": power_line2,
-                "unit": "kW",
-                "timestamp": timestamp,
-                "sensor_type": "power",
-                "location": "line2"
-            }))
-            
-            print(f"Published sensor data at {timestamp}")
-            
-            # Move to next row, loop back to start if at end
-            data_index = (data_index + 1) % len(sensor_data)
-            time.sleep(2)  # Publish every 2 seconds
-            
-    except KeyboardInterrupt:
-        print("Stopping sensor simulator...")
-        client.loop_stop()
-        client.disconnect()
+            logger.info("Starting battery plant sensor data publishing...")
+            while True:
+                self.publish_sensor_data()
+                time.sleep(interval)
+        except KeyboardInterrupt:
+            logger.info("Stopping battery plant simulator...")
+        except Exception as e:
+            logger.error(f"Error in battery plant simulator: {e}")
+        finally:
+            self.client.loop_stop()
+            self.client.disconnect()
 
 if __name__ == "__main__":
-    simulate_sensor_data() 
+    simulator = BatteryPlantSimulator()
+    simulator.load_data()
+    simulator.run() 

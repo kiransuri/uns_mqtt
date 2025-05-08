@@ -1,122 +1,174 @@
 from flask import Flask, render_template
-from flask_socketio import SocketIO
 import paho.mqtt.client as mqtt
 import json
 from datetime import datetime
 import logging
 
-# Set up logging
-logging.basicConfig(level=logging.DEBUG)
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-socketio = SocketIO(app)
 
 # MQTT Configuration
 MQTT_BROKER = "localhost"
 MQTT_PORT = 1883
+MQTT_CLIENT_ID = "battery_plant_dashboard"
 
-# Sensor topics
-SENSOR_TOPICS = {
-    "temperature": {
-        "zone1": "factory/zone1/temperature",
-        "zone2": "factory/zone2/temperature"
+# Standardized MQTT Topic Structure
+TOPIC_BASE = "battery_plant/1"
+TOPICS = {
+    'mixing': {
+        'temperature': f"{TOPIC_BASE}/process/mixing/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/mixing/sensor/humidity",
+        'pressure': f"{TOPIC_BASE}/process/mixing/sensor/pressure",
+        'viscosity': f"{TOPIC_BASE}/process/mixing/sensor/viscosity",
+        'density': f"{TOPIC_BASE}/process/mixing/sensor/density"
     },
-    "pressure": {
-        "zone1": "factory/zone1/pressure",
-        "zone2": "factory/zone2/pressure"
+    'coating': {
+        'thickness': f"{TOPIC_BASE}/process/coating/sensor/thickness",
+        'speed': f"{TOPIC_BASE}/process/coating/sensor/speed",
+        'temperature': f"{TOPIC_BASE}/process/coating/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/coating/sensor/humidity",
+        'web_tension': f"{TOPIC_BASE}/process/coating/sensor/web_tension"
     },
-    "humidity": {
-        "zone1": "factory/zone1/humidity",
-        "zone2": "factory/zone2/humidity"
+    'drying': {
+        'temperature': f"{TOPIC_BASE}/process/drying/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/drying/sensor/humidity",
+        'air_flow': f"{TOPIC_BASE}/process/drying/sensor/air_flow",
+        'drying_time': f"{TOPIC_BASE}/process/drying/sensor/drying_time"
     },
-    "vibration": {
-        "machine1": "factory/machine1/vibration",
-        "machine2": "factory/machine2/vibration"
+    'calendering': {
+        'pressure': f"{TOPIC_BASE}/process/calendering/sensor/pressure",
+        'temperature': f"{TOPIC_BASE}/process/calendering/sensor/temperature",
+        'speed': f"{TOPIC_BASE}/process/calendering/sensor/speed",
+        'thickness': f"{TOPIC_BASE}/process/calendering/sensor/thickness"
     },
-    "power": {
-        "line1": "factory/power/line1",
-        "line2": "factory/power/line2"
+    'slitting': {
+        'speed': f"{TOPIC_BASE}/process/slitting/sensor/speed",
+        'tension': f"{TOPIC_BASE}/process/slitting/sensor/tension",
+        'width': f"{TOPIC_BASE}/process/slitting/sensor/width"
+    },
+    'environmental': {
+        'temperature': f"{TOPIC_BASE}/process/environmental/sensor/temperature",
+        'humidity': f"{TOPIC_BASE}/process/environmental/sensor/humidity",
+        'pressure': f"{TOPIC_BASE}/process/environmental/sensor/pressure"
+    },
+    'quality': {
+        'resistance': f"{TOPIC_BASE}/process/quality/sensor/resistance",
+        'porosity': f"{TOPIC_BASE}/process/quality/sensor/porosity",
+        'density': f"{TOPIC_BASE}/process/quality/sensor/density"
+    },
+    'energy': {
+        'power': f"{TOPIC_BASE}/process/energy/sensor/power",
+        'air_pressure': f"{TOPIC_BASE}/process/energy/sensor/air_pressure",
+        'water_temperature': f"{TOPIC_BASE}/process/energy/sensor/water_temperature"
     }
 }
 
 # Store latest sensor data
 sensor_data = {
-    "temperature": {
-        "zone1": {"value": 0, "unit": "°C", "timestamp": ""},
-        "zone2": {"value": 0, "unit": "°C", "timestamp": ""}
+    'mixing': {
+        'temperature': None,
+        'humidity': None,
+        'pressure': None,
+        'viscosity': None,
+        'density': None
     },
-    "pressure": {
-        "zone1": {"value": 0, "unit": "hPa", "timestamp": ""},
-        "zone2": {"value": 0, "unit": "hPa", "timestamp": ""}
+    'coating': {
+        'thickness': None,
+        'speed': None,
+        'temperature': None,
+        'humidity': None,
+        'web_tension': None
     },
-    "humidity": {
-        "zone1": {"value": 0, "unit": "%", "timestamp": ""},
-        "zone2": {"value": 0, "unit": "%", "timestamp": ""}
+    'drying': {
+        'temperature': None,
+        'humidity': None,
+        'air_flow': None,
+        'drying_time': None
     },
-    "vibration": {
-        "machine1": {"value": 0, "unit": "mm/s", "timestamp": ""},
-        "machine2": {"value": 0, "unit": "mm/s", "timestamp": ""}
+    'calendering': {
+        'pressure': None,
+        'temperature': None,
+        'speed': None,
+        'thickness': None
     },
-    "power": {
-        "line1": {"value": 0, "unit": "kW", "timestamp": ""},
-        "line2": {"value": 0, "unit": "kW", "timestamp": ""}
+    'slitting': {
+        'speed': None,
+        'tension': None,
+        'width': None
+    },
+    'environmental': {
+        'temperature': None,
+        'humidity': None,
+        'pressure': None
+    },
+    'quality': {
+        'resistance': None,
+        'porosity': None,
+        'density': None
+    },
+    'energy': {
+        'power': None,
+        'air_pressure': None,
+        'water_temperature': None
     }
 }
 
 def on_connect(client, userdata, flags, rc):
-    logger.info(f"Connected to MQTT broker with result code {rc}")
-    # Subscribe to all sensor topics
-    for sensor_type, locations in SENSOR_TOPICS.items():
-        for location, topic in locations.items():
-            client.subscribe(topic)
-            logger.debug(f"Subscribed to topic: {topic}")
+    if rc == 0:
+        logger.info("Connected to MQTT broker")
+        # Subscribe to all topics
+        for process, sensors in TOPICS.items():
+            for sensor, topic in sensors.items():
+                client.subscribe(topic)
+                logger.info(f"Subscribed to {topic}")
+    else:
+        logger.error(f"Failed to connect to MQTT broker with code: {rc}")
 
 def on_message(client, userdata, msg):
     try:
-        logger.debug(f"Received message on topic: {msg.topic}")
-        data = json.loads(msg.payload.decode())
-        sensor_type = data.get("sensor_type")
-        location = data.get("location")
+        payload = json.loads(msg.payload.decode())
+        topic_parts = msg.topic.split('/')
         
-        if sensor_type and location:
-            sensor_data[sensor_type][location] = {
-                "value": data["value"],
-                "unit": data["unit"],
-                "timestamp": data["timestamp"]
-            }
-            logger.debug(f"Updated {sensor_type} {location}: {data['value']} {data['unit']}")
-            
-            # Emit the updated data to all connected web clients
-            socketio.emit('sensor_update', sensor_data)
+        # Extract process and sensor type from topic
+        process = topic_parts[3]  # e.g., 'mixing', 'coating', etc.
+        sensor_type = topic_parts[-1]  # e.g., 'temperature', 'humidity', etc.
+        
+        # Update sensor data
+        sensor_data[process][sensor_type] = {
+            'value': payload['value'],
+            'unit': payload['unit'],
+            'timestamp': payload['timestamp']
+        }
+        logger.debug(f"Updated {process} {sensor_type}: {payload}")
     except Exception as e:
         logger.error(f"Error processing message: {e}")
 
+# Set up MQTT client
+client = mqtt.Client(MQTT_CLIENT_ID)
+client.on_connect = on_connect
+client.on_message = on_message
+
 @app.route('/')
 def index():
-    logger.info("Rendering index page")
-    return render_template('index.html', data=sensor_data)
+    return render_template('index.html', sensor_data=sensor_data)
 
-@app.route('/test')
-def test():
-    return "Test route is working!"
+@app.route('/api/sensor-data')
+def get_sensor_data():
+    return sensor_data
 
 def start_mqtt_client():
-    client = mqtt.Client()
-    client.on_connect = on_connect
-    client.on_message = on_message
-    
     try:
-        client.connect(MQTT_BROKER, MQTT_PORT, 60)
-        logger.info(f"Connected to MQTT broker at {MQTT_BROKER}:{MQTT_PORT}")
+        client.connect(MQTT_BROKER, MQTT_PORT)
+        client.loop_start()
     except Exception as e:
-        logger.error(f"Failed to connect to MQTT broker: {e}")
-        raise
-    
-    client.loop_start()
-    return client
+        logger.error(f"Error connecting to MQTT broker: {e}")
 
 if __name__ == '__main__':
-    logger.info("Starting web dashboard...")
-    mqtt_client = start_mqtt_client()
-    socketio.run(app, debug=True, use_reloader=False, host='0.0.0.0', port=5001) 
+    start_mqtt_client()
+    app.run(debug=True, use_reloader=False, port=5001) 
